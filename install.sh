@@ -1,57 +1,59 @@
 #!/usr/bin/env bash
-# Nuvem PIX — instalador para VPS (Ubuntu 22.04/24.04 limpa).
-# Baixa as imagens prontas do GHCR (com o token de acesso que você recebeu) e sobe a stack.
+# Nuvem PIX — instalador/menu para VPS (Ubuntu 22.04/24.04 limpa).
 # Uso:  sudo bash install.sh
 set -euo pipefail
-cd "$(cd "$(dirname "$0")" && pwd)"
-
-bold() { printf "\033[1m%s\033[0m\n" "$1"; }
-info() { printf "  \033[36m%s\033[0m\n" "$1"; }
-gen()  { openssl rand -hex "${1:-24}"; }
-ask()  { local p="$1" d="${2:-}" v; read -r -p "$p${d:+ [$d]}: " v; echo "${v:-$d}"; }
-asks() { local p="$1" v; read -r -s -p "$p: " v; echo "" >&2; echo "$v"; }
+SELFDIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SELFDIR"
+. "$SELFDIR/lib.sh"
 
 [ "$(id -u)" = "0" ] || { echo "Rode como root:  sudo bash install.sh"; exit 1; }
 
-bold "== Nuvem PIX — instalação =="
+pause() { printf '\n'; read -r -p "  Enter para voltar ao menu..." _ || true; }
 
-# ---- 1) Docker ----
-if ! command -v docker >/dev/null 2>&1; then
-  bold "Instalando Docker..."; curl -fsSL https://get.docker.com | sh
-fi
-docker compose version >/dev/null 2>&1 || { echo "Instale o docker-compose-plugin."; exit 1; }
-info "Docker OK: $(docker --version)"
+# ============================================================
+#  Nova instalação
+# ============================================================
+do_install() {
+  logo
+  bold "Nova instalação"
+  printf '\n'
 
-# ---- 2) Login no registro de imagens (GHCR) ----
-bold "Acesso às imagens (credenciais que você recebeu):"
-GHCR_USER=$(ask "Usuário GHCR" "fredericozapponi")
-GHCR_TOKEN=$(asks "Token de acesso (read:packages)")
-echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
-info "Login no GHCR OK."
+  # ---- 1) Docker ----
+  if ! command -v docker >/dev/null 2>&1; then
+    info "Instalando Docker..."; curl -fsSL https://get.docker.com | sh
+  fi
+  docker compose version >/dev/null 2>&1 || { printf "  ${REDC}%s${RST}\n" "Instale o docker-compose-plugin."; return 1; }
+  ok "Docker OK: $(docker --version)"
 
-# ---- 3) Config / segredos ----
-if [ -f .env ] && [ "$(ask 'Já existe .env. Reconfigurar? (s/N)' 'N')" != "s" ]; then
-  info "Mantendo .env atual."; SKIP_ENV=1
-fi
+  # ---- 2) Login no registro de imagens (GHCR) ----
+  bold "Acesso às imagens (credenciais que você recebeu):"
+  GHCR_USER=$(ask "Usuário GHCR" "fredericozapponi")
+  GHCR_TOKEN=$(asks "Token de acesso (read:packages)")
+  echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+  ok "Login no GHCR OK."
 
-if [ "${SKIP_ENV:-0}" != "1" ]; then
-  bold "Configuração:"
-  DOMAIN=$(ask "Domínio (apontado para esta VPS)" "")
-  while [ -z "$DOMAIN" ]; do DOMAIN=$(ask "Domínio é obrigatório" ""); done
-  ACME_EMAIL=$(ask "E-mail do certificado (Let's Encrypt)" "admin@$DOMAIN")
-  ADMIN_EMAIL=$(ask "E-mail do admin (login)" "admin@$DOMAIN")
-  ADMIN_PASSWORD=$(asks "Senha do admin")
-  while [ "${#ADMIN_PASSWORD}" -lt 6 ]; do ADMIN_PASSWORD=$(asks "Senha do admin (mín. 6)"); done
-  PIX_PROVIDER=$(ask "Gateway Pix (mercadopago/mock)" "mercadopago")
-  PIX_PAYER_EMAIL=$(ask "E-mail pagador padrão" "pagador@$DOMAIN")
-  # As chaves do Mercado Pago NÃO são mais pedidas aqui: cada estabelecimento configura
-  # a própria conta de recebimento no painel (Estabelecimentos → Recebimento).
+  # ---- 3) Config / segredos ----
+  if [ -f .env ] && [ "$(ask 'Já existe .env. Reconfigurar? (s/N)' 'N')" != "s" ]; then
+    info "Mantendo .env atual."; SKIP_ENV=1
+  fi
 
-  bold "Gerando segredos..."
-  POSTGRES_PASSWORD=$(gen 16); MQTT_PASSWORD=$(gen 16)
-  EMQX_AUTH_TOKEN=$(gen 24); EMQX_NODE_COOKIE=$(gen 16); JWT_SECRET=$(gen 32)
+  if [ "${SKIP_ENV:-0}" != "1" ]; then
+    bold "Configuração:"
+    DOMAIN=$(ask "Domínio (apontado para esta VPS)" "")
+    while [ -z "$DOMAIN" ]; do DOMAIN=$(ask "Domínio é obrigatório" ""); done
+    ACME_EMAIL=$(ask "E-mail do certificado (Let's Encrypt)" "admin@$DOMAIN")
+    ADMIN_EMAIL=$(ask "E-mail do admin (login)" "admin@$DOMAIN")
+    ADMIN_PASSWORD=$(asks "Senha do admin")
+    while [ "${#ADMIN_PASSWORD}" -lt 6 ]; do ADMIN_PASSWORD=$(asks "Senha do admin (mín. 6)"); done
+    PIX_PROVIDER=$(ask "Gateway Pix (mercadopago/mock)" "mercadopago")
+    PIX_PAYER_EMAIL=$(ask "E-mail pagador padrão" "pagador@$DOMAIN")
+    # As chaves do Mercado Pago são por estabelecimento (no painel), não aqui.
 
-  cat > .env <<EOF
+    info "Gerando segredos..."
+    POSTGRES_PASSWORD=$(gen 16); MQTT_PASSWORD=$(gen 16)
+    EMQX_AUTH_TOKEN=$(gen 24); EMQX_NODE_COOKIE=$(gen 16); JWT_SECRET=$(gen 32)
+
+    cat > .env <<EOF
 APP_ENV=production
 HTTP_ADDR=:8080
 NUVEMPIX_VERSION=latest
@@ -89,33 +91,51 @@ HEARTBEAT_TTL=60s
 MONITOR_TICK=20s
 PIX_PENDING_TTL=30m
 EOF
-  chmod 600 .env
-  info ".env gerado."
-fi
+    chmod 600 .env
+    ok ".env gerado."
+  fi
 
-# ---- 4) Config do EMQX (injeta o token) ----
-EMQX_TOKEN=$(grep '^EMQX_AUTH_TOKEN=' .env | cut -d= -f2)
-sed "s/<EMQX_AUTH_TOKEN>/${EMQX_TOKEN}/g" emqx/emqx.prod.conf > emqx/emqx.runtime.conf
+  # ---- 4) Config do EMQX (injeta o token) ----
+  EMQX_TOKEN=$(grep '^EMQX_AUTH_TOKEN=' .env | cut -d= -f2)
+  sed "s/<EMQX_AUTH_TOKEN>/${EMQX_TOKEN}/g" emqx/emqx.prod.conf > emqx/emqx.runtime.conf
 
-# ---- 5) Volume de dados ----
-mkdir -p data && chown -R 65532:65532 data || true
+  # ---- 5) Volume de dados ----
+  mkdir -p data && chown -R 65532:65532 data || true
 
-# ---- 6) Firewall ----
-if command -v ufw >/dev/null 2>&1; then
-  for p in 22 80 443 1883 8080; do ufw allow "$p"/tcp >/dev/null 2>&1 || true; done
-  info "Portas liberadas no ufw: 22, 80, 443, 1883, 8080."
-fi
+  # ---- 6) Firewall ----
+  if command -v ufw >/dev/null 2>&1; then
+    for p in 22 80 443 1883 8080; do ufw allow "$p"/tcp >/dev/null 2>&1 || true; done
+    info "Portas liberadas no ufw: 22, 80, 443, 1883, 8080."
+  fi
 
-# ---- 7) Baixa as imagens e sobe ----
-bold "Baixando imagens e subindo..."
-docker compose pull
-docker compose up -d
+  # ---- 7) Baixa as imagens e sobe ----
+  bold "Baixando imagens e subindo..."
+  docker compose pull
+  docker compose up -d
 
-DOMAIN=$(grep '^DOMAIN=' .env | cut -d= -f2)
-echo ""
-bold "== Pronto! =="
-info "Painel/site:  https://${DOMAIN}"
-info "Placas (HTTP): http://${DOMAIN}:8080   |   MQTT: ${DOMAIN}:1883"
-info "DNS: o domínio precisa apontar para o IP desta VPS para o HTTPS."
-info "Logs:    docker compose logs -f"
-info "Atualizar: sudo bash update.sh"
+  DOMAIN=$(grep '^DOMAIN=' .env | cut -d= -f2)
+  printf '\n'
+  ok "Instalação concluída!"
+  info "Painel/site:   https://${DOMAIN}"
+  info "Placas (HTTP): http://${DOMAIN}:8080   |   MQTT: ${DOMAIN}:1883"
+  info "DNS: o domínio precisa apontar para o IP desta VPS para o HTTPS."
+  info "Logs:          docker compose logs -f"
+}
+
+# ============================================================
+#  Menu
+# ============================================================
+while true; do
+  logo
+  printf "  ${B}MENU${RST}\n\n"
+  printf "    ${GOLD}${B}1${RST})  Nova Instalação\n"
+  printf "    ${GOLD}${B}2${RST})  Atualizar Instalação\n"
+  printf "    ${GOLD}${B}3${RST})  Sair\n\n"
+  read -r -p "  Escolha [1-3]: " OPT || exit 0
+  case "${OPT:-}" in
+    1) do_install; pause ;;
+    2) bash "$SELFDIR/update.sh"; pause ;;
+    3) printf "\n  Até mais! 👋\n\n"; exit 0 ;;
+    *) ;;
+  esac
+done

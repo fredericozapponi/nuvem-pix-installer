@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
 # Nuvem PIX — atualiza para a última versão das imagens. Mantém .env e dados.
 set -euo pipefail
-cd "$(cd "$(dirname "$0")" && pwd)"
+SELFDIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SELFDIR"
+. "$SELFDIR/lib.sh"
 
-echo "== Atualizando Nuvem PIX =="
+logo
+bold "Atualizar instalação"
+printf '\n'
+
 # Atualiza os arquivos do instalador (compose/config), se for um clone git.
+info "Buscando atualizações dos arquivos..."
 git pull --ff-only 2>/dev/null || true
 
 # Regenera a config do EMQX (token do .env).
@@ -13,7 +19,9 @@ if [ -f .env ]; then
   sed "s/<EMQX_AUTH_TOKEN>/${EMQX_TOKEN}/g" emqx/emqx.prod.conf > emqx/emqx.runtime.conf
 fi
 
+info "Baixando imagens novas..."
 docker compose pull
 docker compose up -d
-echo "== Atualizado. =="
+printf '\n'
+ok "Atualizado."
 docker compose ps

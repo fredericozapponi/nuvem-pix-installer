@@ -23,7 +23,9 @@ git clone https://github.com/fredericozapponi/nuvem-pix-installer.git
 cd nuvem-pix-installer
 sudo bash install.sh
 ```
-O instalador:
+Abre um **menu**: **Nova Instalação**, **Atualizar Instalação** ou **Sair**.
+
+A **Nova Instalação**:
 1. instala o Docker (se faltar);
 2. faz `docker login` no registro com o seu **token**;
 3. pergunta **domínio, admin, gateway Pix**, gera os **segredos** e escreve o `.env`;
