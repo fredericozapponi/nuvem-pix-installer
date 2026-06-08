@@ -68,8 +68,6 @@ services:
     image: emqx/emqx:5.8.9
     container_name: nuvempix-emqx
     restart: unless-stopped
-    environment:
-      EMQX_NODE__COOKIE: ${EMQX_NODE_COOKIE:-nuvempix-cookie}
     ports:
       - "1883:1883" # MQTT das placas
     volumes:
