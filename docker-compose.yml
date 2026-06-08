@@ -1,0 +1,89 @@
+# Nuvem PIX — produção (instalação por imagens). Não builda nada: puxa as imagens do GHCR.
+# Use o install.sh. Variáveis vêm do .env (gerado pelo instalador).
+services:
+  caddy:
+    image: ghcr.io/fredericozapponi/nuvem-pix-edge:${NUVEMPIX_VERSION:-latest}
+    container_name: nuvempix-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:-admin@example.com}
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+
+  backend:
+    image: ghcr.io/fredericozapponi/nuvem-pix-backend:${NUVEMPIX_VERSION:-latest}
+    container_name: nuvempix-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8080:8080" # HTTP das placas (device/hello, tx/verify, firmware)
+    volumes:
+      - ./data:/app/data # firmware .bin + imagens da landing (persistente)
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      emqx:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: nuvempix-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-nuvempix}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-nuvempix}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nuvempix}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    container_name: nuvempix-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  emqx:
+    image: emqx/emqx:5.8.9
+    container_name: nuvempix-emqx
+    restart: unless-stopped
+    environment:
+      EMQX_NODE__COOKIE: ${EMQX_NODE_COOKIE:-nuvempix-cookie}
+    ports:
+      - "1883:1883" # MQTT das placas
+    volumes:
+      - ./emqx/emqx.runtime.conf:/opt/emqx/etc/emqx.conf:ro
+      - emqx_data:/opt/emqx/data
+    healthcheck:
+      test: ["CMD", "/opt/emqx/bin/emqx", "ctl", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+
+volumes:
+  caddy_data:
+  caddy_config:
+  pg_data:
+  redis_data:
+  emqx_data:

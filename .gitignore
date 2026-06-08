@@ -1,0 +1,7 @@
+# Nunca comitar segredos nem dados de runtime.
+.env
+.env.*
+!.env.production.example
+emqx/emqx.runtime.conf
+data/
+.DS_Store
