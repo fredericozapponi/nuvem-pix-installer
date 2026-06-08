@@ -78,7 +78,7 @@ FIRMWARE_DIR=/app/data/firmware
 LANDING_DIR=/app/data/landing
 PIX_PROVIDER=${PIX_PROVIDER}
 MP_BASE_URL=https://api.mercadopago.com
-PIX_WEBHOOK_BASE_URL=https://${DOMAIN}
+PIX_WEBHOOK_BASE_URL=https://${DOMAIN}/api
 PIX_PAYER_EMAIL=${PIX_PAYER_EMAIL}
 # Credenciais Mercado Pago são POR ESTABELECIMENTO (configuradas no painel), não aqui.
 MP_ACCESS_TOKEN=
