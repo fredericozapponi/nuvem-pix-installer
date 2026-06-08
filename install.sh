@@ -43,9 +43,9 @@ if [ "${SKIP_ENV:-0}" != "1" ]; then
   ADMIN_PASSWORD=$(asks "Senha do admin")
   while [ "${#ADMIN_PASSWORD}" -lt 6 ]; do ADMIN_PASSWORD=$(asks "Senha do admin (mín. 6)"); done
   PIX_PROVIDER=$(ask "Gateway Pix (mercadopago/mock)" "mercadopago")
-  MP_ACCESS_TOKEN=$(ask "Token Mercado Pago (vazio se mock)" "")
-  MP_WEBHOOK_SECRET=$(ask "Assinatura secreta webhook MP (opcional)" "")
   PIX_PAYER_EMAIL=$(ask "E-mail pagador padrão" "pagador@$DOMAIN")
+  # As chaves do Mercado Pago NÃO são mais pedidas aqui: cada estabelecimento configura
+  # a própria conta de recebimento no painel (Estabelecimentos → Recebimento).
 
   bold "Gerando segredos..."
   POSTGRES_PASSWORD=$(gen 16); MQTT_PASSWORD=$(gen 16)
@@ -77,11 +77,12 @@ DEVICE_MQTT_PORT=1883
 FIRMWARE_DIR=/app/data/firmware
 LANDING_DIR=/app/data/landing
 PIX_PROVIDER=${PIX_PROVIDER}
-MP_ACCESS_TOKEN=${MP_ACCESS_TOKEN}
 MP_BASE_URL=https://api.mercadopago.com
 PIX_WEBHOOK_BASE_URL=https://${DOMAIN}
-MP_WEBHOOK_SECRET=${MP_WEBHOOK_SECRET}
 PIX_PAYER_EMAIL=${PIX_PAYER_EMAIL}
+# Credenciais Mercado Pago são POR ESTABELECIMENTO (configuradas no painel), não aqui.
+MP_ACCESS_TOKEN=
+MP_WEBHOOK_SECRET=
 JWT_SECRET=${JWT_SECRET}
 JWT_TTL=24h
 HEARTBEAT_TTL=60s
