@@ -33,6 +33,5 @@ docker compose up -d >>"$LOG" 2>&1 &
 spinner $! "Reiniciando os serviços"
 wait $! || { printf '\n'; tail -n 20 "$LOG"; die "Falha ao subir — veja o log acima."; }
 
-printf '\n'
-docker compose ps
+services_status
 printf "\n  ${GREEN}${B}✔ Atualizado!${RST} Confira o painel.\n\n"

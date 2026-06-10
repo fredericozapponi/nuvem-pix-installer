@@ -39,6 +39,33 @@ spinner() {
 is_domain() { [[ "$1" =~ ^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; }
 is_email()  { [[ "$1" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]]; }
 
+# services_status — mostra os serviços de forma limpa (bolinha verde "no ar" / vermelha).
+services_status() {
+  printf "\n  ${B}Serviços${RST}\n"
+  local name state status label dot st
+  while IFS='|' read -r name state status; do
+    [ -z "$name" ] && continue
+    case "$name" in
+      *backend*)  label="API / Backend" ;;
+      *caddy*|*edge*) label="Site & HTTPS (Caddy)" ;;
+      *emqx*)     label="Broker MQTT (EMQX)" ;;
+      *postgres*) label="Banco (PostgreSQL)" ;;
+      *redis*)    label="Cache (Redis)" ;;
+      *)          label="$name" ;;
+    esac
+    if [ "$state" = "running" ]; then
+      dot="${GREEN}●${RST}"
+      case "$status" in
+        *healthy*) st="${GREEN}no ar${RST} ${DIM}(saudável)${RST}" ;;
+        *)         st="${GREEN}no ar${RST}" ;;
+      esac
+    else
+      dot="${REDC}●${RST}"; st="${REDC}${state:-parado}${RST}"
+    fi
+    printf "    ${dot}  %-22s ${st}\n" "$label"
+  done < <(docker ps -a --filter "name=nuvempix-" --format '{{.Names}}|{{.State}}|{{.Status}}' 2>/dev/null | sort)
+}
+
 # logo limpa a tela e desenha a marca Nuvem PIX em dourado.
 logo() {
   clear 2>/dev/null || true

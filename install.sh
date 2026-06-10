@@ -162,7 +162,9 @@ EOF
   printf "  ${GREEN}${B}╚══════════════════════════════════════════════╝${RST}\n\n"
   printf "  ${B}Painel/site${RST}   https://%s\n" "$DOMAIN"
   printf "  ${B}Placas${RST}        http://%s:8080   ${DIM}|${RST}   MQTT: %s:1883\n" "$DOMAIN" "$DOMAIN"
-  printf "  ${B}Login admin${RST}   %s\n\n" "$ADMIN_EMAIL"
+  printf "  ${B}Login admin${RST}   %s\n" "$ADMIN_EMAIL"
+  services_status
+  printf '\n'
   note "DNS: o domínio precisa apontar para o IP desta VPS para o HTTPS."
   note "Logs: docker compose logs -f"
 }
