@@ -70,12 +70,14 @@ do_install() {
     PIX_PROVIDER=$(ask "Gateway Pix (mercadopago/mock)" "mercadopago")
     PIX_PAYER_EMAIL=$(ask "E-mail pagador padrão" "pagador@$DOMAIN")
     # As chaves do Mercado Pago são por estabelecimento (no painel), não aqui.
+    LICENSE_KEY=$(ask "Chave de licença (recebida do fornecedor, ex.: NPX-...)" "")
 
     printf "\n  ${B}Revise a configuração:${RST}\n"
     printf "    ${DIM}%-13s${RST} %s\n" "Domínio" "$DOMAIN"
     printf "    ${DIM}%-13s${RST} %s\n" "Painel" "https://$DOMAIN"
     printf "    ${DIM}%-13s${RST} %s\n" "Admin" "$ADMIN_EMAIL"
-    printf "    ${DIM}%-13s${RST} %s\n\n" "Gateway Pix" "$PIX_PROVIDER"
+    printf "    ${DIM}%-13s${RST} %s\n" "Gateway Pix" "$PIX_PROVIDER"
+    printf "    ${DIM}%-13s${RST} %s\n\n" "Licença" "${LICENSE_KEY:-(nenhuma — modo aberto)}"
     yesno "Confirmar e instalar?" "S" || die "Instalação cancelada."
 
     note "Gerando segredos fortes..."
@@ -119,6 +121,9 @@ JWT_TTL=24h
 HEARTBEAT_TTL=60s
 MONITOR_TICK=20s
 PIX_PENDING_TTL=30m
+# Licença/ativação (validada contra o servidor do fornecedor). Vazia = modo aberto.
+LICENSE_KEY=${LICENSE_KEY}
+LICENSE_SERVER_URL=https://sistema.nuvempix.com.br
 EOF
     chmod 600 .env
     ok ".env gerado (segredos fortes; só root lê)."
