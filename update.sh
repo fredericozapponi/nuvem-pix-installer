@@ -7,21 +7,32 @@ cd "$SELFDIR"
 
 logo
 bold "Atualizar instalação"
-printf '\n'
+N=3
+LOG=/tmp/nuvempix-update.log
 
-# Atualiza os arquivos do instalador (compose/config), se for um clone git.
-info "Buscando atualizações dos arquivos..."
-git pull --ff-only 2>/dev/null || true
+# ---- 1) Arquivos do instalador (compose/config), se for um clone git ----
+step 1 $N "Buscando atualizações"
+git pull --ff-only >"$LOG" 2>&1 || true
+ok "Arquivos atualizados (.env e dados preservados)."
 
-# Regenera a config do EMQX (token do .env).
+# ---- 2) Config do EMQX (token do .env) ----
+step 2 $N "Preparando configs"
 if [ -f .env ]; then
   EMQX_TOKEN=$(grep '^EMQX_AUTH_TOKEN=' .env | cut -d= -f2)
   sed "s/<EMQX_AUTH_TOKEN>/${EMQX_TOKEN}/g" emqx/emqx.prod.conf > emqx/emqx.runtime.conf
 fi
+ok "Configs prontas."
 
-info "Baixando imagens novas..."
-docker compose pull
-docker compose up -d
+# ---- 3) Imagens novas + restart ----
+step 3 $N "Subindo a versão nova"
+note "As migrações do banco sobem sozinhas no boot."
+docker compose pull >>"$LOG" 2>&1 &
+spinner $! "Baixando as imagens (detalhes em $LOG)"
+wait $! || { printf '\n'; tail -n 20 "$LOG"; die "Falha ao baixar as imagens."; }
+docker compose up -d >>"$LOG" 2>&1 &
+spinner $! "Reiniciando os serviços"
+wait $! || { printf '\n'; tail -n 20 "$LOG"; die "Falha ao subir — veja o log acima."; }
+
 printf '\n'
-ok "Atualizado."
 docker compose ps
+printf "\n  ${GREEN}${B}✔ Atualizado!${RST} Confira o painel.\n\n"

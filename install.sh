@@ -16,40 +16,69 @@ pause() { printf '\n'; read -r -p "  Enter para voltar ao menu..." _ || true; }
 do_install() {
   logo
   bold "Nova instalação"
-  printf '\n'
+  local N=7
 
   # ---- 1) Docker ----
+  step 1 $N "Docker"
   if ! command -v docker >/dev/null 2>&1; then
-    info "Instalando Docker..."; curl -fsSL https://get.docker.com | sh
+    note "Instalando Docker (pode demorar um pouco)..."
+    curl -fsSL https://get.docker.com | sh >/dev/null 2>&1 &
+    spinner $! "Baixando e instalando o Docker"
   fi
-  docker compose version >/dev/null 2>&1 || { printf "  ${REDC}%s${RST}\n" "Instale o docker-compose-plugin."; return 1; }
-  ok "Docker OK: $(docker --version)"
+  command -v docker >/dev/null 2>&1 || die "Docker não foi instalado."
+  docker compose version >/dev/null 2>&1 || die "Docker Compose v2 ausente (instale o docker-compose-plugin)."
+  ok "Docker pronto — $(docker --version | cut -d, -f1)"
 
   # ---- 2) Login no registro de imagens (GHCR) ----
-  bold "Acesso às imagens (credenciais que você recebeu):"
+  step 2 $N "Acesso às imagens"
+  note "Use as credenciais que você recebeu (token read:packages)."
   GHCR_USER=$(ask "Usuário GHCR" "fredericozapponi")
-  GHCR_TOKEN=$(asks "Token de acesso (read:packages)")
-  echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+  GHCR_TOKEN=$(asks "Token de acesso")
+  echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin >/dev/null 2>&1 \
+    || die "Login no GHCR falhou — confira o usuário e o token."
   ok "Login no GHCR OK."
 
   # ---- 3) Config / segredos ----
-  if [ -f .env ] && [ "$(ask 'Já existe .env. Reconfigurar? (s/N)' 'N')" != "s" ]; then
-    info "Mantendo .env atual."; SKIP_ENV=1
+  step 3 $N "Configuração"
+  if [ -f .env ] && ! yesno "Já existe um .env. Reconfigurar do zero?" "N"; then
+    ok "Mantendo o .env atual."; SKIP_ENV=1
   fi
 
   if [ "${SKIP_ENV:-0}" != "1" ]; then
-    bold "Configuração:"
-    DOMAIN=$(ask "Domínio (apontado para esta VPS)" "")
-    while [ -z "$DOMAIN" ]; do DOMAIN=$(ask "Domínio é obrigatório" ""); done
-    ACME_EMAIL=$(ask "E-mail do certificado (Let's Encrypt)" "admin@$DOMAIN")
-    ADMIN_EMAIL=$(ask "E-mail do admin (login)" "admin@$DOMAIN")
-    ADMIN_PASSWORD=$(asks "Senha do admin")
-    while [ "${#ADMIN_PASSWORD}" -lt 6 ]; do ADMIN_PASSWORD=$(asks "Senha do admin (mín. 6)"); done
+    printf "  ${DIM}Responda abaixo (Enter aceita o padrão entre colchetes):${RST}\n\n"
+    DOMAIN=""
+    while ! is_domain "$DOMAIN"; do
+      DOMAIN=$(ask "Domínio apontado para esta VPS" "")
+      is_domain "$DOMAIN" || warn "Domínio inválido (ex.: nuvempix.com.br)."
+    done
+    ACME_EMAIL=""
+    while ! is_email "$ACME_EMAIL"; do
+      ACME_EMAIL=$(ask "E-mail do certificado (Let's Encrypt)" "admin@$DOMAIN")
+      is_email "$ACME_EMAIL" || warn "E-mail inválido."
+    done
+    ADMIN_EMAIL=""
+    while ! is_email "$ADMIN_EMAIL"; do
+      ADMIN_EMAIL=$(ask "E-mail do admin (login do painel)" "admin@$DOMAIN")
+      is_email "$ADMIN_EMAIL" || warn "E-mail inválido."
+    done
+    while :; do
+      ADMIN_PASSWORD=$(asks "Senha do admin (mín. 6)")
+      [ "${#ADMIN_PASSWORD}" -ge 6 ] || { warn "Senha curta demais."; continue; }
+      CONFIRM=$(asks "Confirme a senha")
+      [ "$ADMIN_PASSWORD" = "$CONFIRM" ] && break || warn "As senhas não conferem, tente de novo."
+    done
     PIX_PROVIDER=$(ask "Gateway Pix (mercadopago/mock)" "mercadopago")
     PIX_PAYER_EMAIL=$(ask "E-mail pagador padrão" "pagador@$DOMAIN")
     # As chaves do Mercado Pago são por estabelecimento (no painel), não aqui.
 
-    info "Gerando segredos..."
+    printf "\n  ${B}Revise a configuração:${RST}\n"
+    printf "    ${DIM}%-13s${RST} %s\n" "Domínio" "$DOMAIN"
+    printf "    ${DIM}%-13s${RST} %s\n" "Painel" "https://$DOMAIN"
+    printf "    ${DIM}%-13s${RST} %s\n" "Admin" "$ADMIN_EMAIL"
+    printf "    ${DIM}%-13s${RST} %s\n\n" "Gateway Pix" "$PIX_PROVIDER"
+    yesno "Confirmar e instalar?" "S" || die "Instalação cancelada."
+
+    note "Gerando segredos fortes..."
     POSTGRES_PASSWORD=$(gen 16); MQTT_PASSWORD=$(gen 16)
     EMQX_AUTH_TOKEN=$(gen 24); EMQX_NODE_COOKIE=$(gen 16); JWT_SECRET=$(gen 32)
 
@@ -92,34 +121,50 @@ MONITOR_TICK=20s
 PIX_PENDING_TTL=30m
 EOF
     chmod 600 .env
-    ok ".env gerado."
+    ok ".env gerado (segredos fortes; só root lê)."
   fi
 
-  # ---- 4) Config do EMQX (injeta o token) ----
+  # ---- 4) EMQX ----
+  step 4 $N "Broker MQTT (EMQX)"
   EMQX_TOKEN=$(grep '^EMQX_AUTH_TOKEN=' .env | cut -d= -f2)
   sed "s/<EMQX_AUTH_TOKEN>/${EMQX_TOKEN}/g" emqx/emqx.prod.conf > emqx/emqx.runtime.conf
+  ok "Config do EMQX preparada."
 
   # ---- 5) Volume de dados ----
+  step 5 $N "Volume de dados"
   mkdir -p data && chown -R 65532:65532 data || true
+  ok "Pasta de dados pronta."
 
   # ---- 6) Firewall ----
+  step 6 $N "Firewall"
   if command -v ufw >/dev/null 2>&1; then
     for p in 22 80 443 1883 8080; do ufw allow "$p"/tcp >/dev/null 2>&1 || true; done
-    info "Portas liberadas no ufw: 22, 80, 443, 1883, 8080."
+    ok "Portas liberadas no ufw: 22, 80, 443, 1883, 8080."
+  else
+    note "ufw não encontrado — abra as portas 80, 443, 1883 e 8080 no firewall."
   fi
 
   # ---- 7) Baixa as imagens e sobe ----
-  bold "Baixando imagens e subindo..."
-  docker compose pull
-  docker compose up -d
+  step 7 $N "Subindo a stack"
+  local LOG=/tmp/nuvempix-install.log
+  docker compose pull >"$LOG" 2>&1 &
+  spinner $! "Baixando as imagens (detalhes em $LOG)"
+  wait $! || { printf '\n'; tail -n 20 "$LOG"; die "Falha ao baixar as imagens."; }
+  docker compose up -d >>"$LOG" 2>&1 &
+  spinner $! "Iniciando os serviços"
+  wait $! || { printf '\n'; tail -n 20 "$LOG"; die "Falha ao subir a stack — veja o log acima."; }
+  ok "Serviços no ar."
 
   DOMAIN=$(grep '^DOMAIN=' .env | cut -d= -f2)
-  printf '\n'
-  ok "Instalação concluída!"
-  info "Painel/site:   https://${DOMAIN}"
-  info "Placas (HTTP): http://${DOMAIN}:8080   |   MQTT: ${DOMAIN}:1883"
-  info "DNS: o domínio precisa apontar para o IP desta VPS para o HTTPS."
-  info "Logs:          docker compose logs -f"
+  ADMIN_EMAIL=$(grep '^ADMIN_EMAIL=' .env | cut -d= -f2)
+  printf "\n  ${GREEN}${B}╔══════════════════════════════════════════════╗${RST}\n"
+  printf "  ${GREEN}${B}║            INSTALAÇÃO CONCLUÍDA ✔             ║${RST}\n"
+  printf "  ${GREEN}${B}╚══════════════════════════════════════════════╝${RST}\n\n"
+  printf "  ${B}Painel/site${RST}   https://%s\n" "$DOMAIN"
+  printf "  ${B}Placas${RST}        http://%s:8080   ${DIM}|${RST}   MQTT: %s:1883\n" "$DOMAIN" "$DOMAIN"
+  printf "  ${B}Login admin${RST}   %s\n\n" "$ADMIN_EMAIL"
+  note "DNS: o domínio precisa apontar para o IP desta VPS para o HTTPS."
+  note "Logs: docker compose logs -f"
 }
 
 # ============================================================

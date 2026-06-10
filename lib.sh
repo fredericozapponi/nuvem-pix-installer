@@ -14,10 +14,30 @@ RST=$'\033[0m'
 bold() { printf "  ${B}%s${RST}\n" "$1"; }
 info() { printf "  ${CYAN}%s${RST}\n" "$1"; }
 ok()   { printf "  ${GREEN}✔ %s${RST}\n" "$1"; }
-warn() { printf "  ${GOLD}%s${RST}\n" "$1"; }
+warn() { printf "  ${GOLD}! %s${RST}\n" "$1"; }
+note() { printf "  ${CYAN}•${RST} ${DIM}%s${RST}\n" "$1"; }
+die()  { printf "\n  ${REDC}${B}✗ %s${RST}\n\n" "$1"; exit 1; }
 gen()  { openssl rand -hex "${1:-24}"; }
-ask()  { local p="$1" d="${2:-}" v; read -r -p "  $p${d:+ [$d]}: " v; echo "${v:-$d}"; }
-asks() { local p="$1" v; read -r -s -p "  $p: " v; echo "" >&2; echo "$v"; }
+ask()  { local p="$1" d="${2:-}" v; read -r -p "  ${B}$p${RST}${d:+ ${DIM}[$d]${RST}}: " v; echo "${v:-$d}"; }
+asks() { local p="$1" v; read -r -s -p "  ${B}$p${RST}: " v; echo "" >&2; echo "$v"; }
+yesno() { local p="$1" d="${2:-N}" v; v=$(ask "$p ${DIM}(s/N)${RST}" "$d"); [ "${v,,}" = "s" ]; }
+
+# step "1" "7" "Título" — cabeçalho de etapa numerada.
+step() { printf "\n  ${GOLD}${B}[%s/%s]${RST} ${B}%s${RST}\n" "$1" "$2" "$3"; }
+
+# spinner <pid> "mensagem" — gira enquanto o processo roda; marca ✔ ao terminar.
+spinner() {
+  local pid=$1 msg=$2 chars='|/-\' i=0
+  printf "  %s " "$msg"
+  while kill -0 "$pid" 2>/dev/null; do
+    i=$(( (i + 1) % 4 )); printf "\b%s" "${chars:$i:1}"; sleep 0.15
+  done
+  printf "\b${GREEN}✔${RST}\n"
+}
+
+# validações simples
+is_domain() { [[ "$1" =~ ^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; }
+is_email()  { [[ "$1" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]]; }
 
 # logo limpa a tela e desenha a marca Nuvem PIX em dourado.
 logo() {
